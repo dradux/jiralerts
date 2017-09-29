@@ -77,12 +77,13 @@ def update_issue(issue, summary, description):
 
 @jira_request_time_create.time()
 def create_issue(project, team, summary, description):
+    #print("* creating issue: project: [%s] team: [%s] summary: [%s]" % ( project, team, summary ))
     return jira.create_issue({
         'project': {'key': project},
         'summary': summary,
         'description': "%s\n\n%s" % (description_boundary, description),
         'issuetype': {'name': 'Task'},
-        'labels': ['alert', team],
+        'labels': ['do-alert', team],
     })
 
 @app.route('/-/health')
@@ -96,8 +97,17 @@ def file_issue(project, team):
     This endpoint accepts a JSON encoded notification according to the version 3
     of the generic webhook of the Prometheus Alertmanager.
     """
+    #print('* file_issue...')
     data = request.get_json()
-    if data['version'] != "3":
+
+    # if severity is 'notice' then ignore.
+    if data["commonLabels"]["severity"] == "notice":
+        #print('* ignoring notice as they are not issues...')
+        return "issue ignored as it is a 'notice'", 200
+
+    #print('** data is: [{0}]'.format(data))
+    #if data['version'] != "3":
+    if data['version'] not in ['3','4']:
         return "unknown message version %s" % data['version'], 400
 
     resolved = data['status'] == "resolved"
@@ -105,7 +115,13 @@ def file_issue(project, team):
     summary = summary_tmpl.render(data)
 
     # If there's already a ticket for the incident, update it and reopen/close if necessary.
-    result = jira.search_issues(search_query % (project, data['groupKey']))
+    #search_key = data["commonLabels"]["alertname"]
+    search_key = summary
+    search_limiter = 'do-alert'
+    search_string = "project={0} and summary ~ '{1}' and labels = {2}".format(project,summary,search_limiter)
+    #print('* searching for the issue using: {0}'.format(search_string) )
+    #result = jira.search_issues(search_query % (project, search_key, search_limiter ))
+    result = jira.search_issues(search_string)
     if result:
         issue = result[0]
 
